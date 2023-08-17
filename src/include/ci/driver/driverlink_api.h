@@ -4,6 +4,7 @@
 #define __CI_DRIVER_DRIVERLINK_API__
 
 #define EFX_DRIVERLINK_API_VERSION_MINOR 0
+#define EFX_NOT_UPSTREAM
 
 #include <../driver/linux_net/drivers/net/ethernet/sfc/driverlink_api.h>
 #include <../driver/linux_net/drivers/net/ethernet/sfc/filter.h>

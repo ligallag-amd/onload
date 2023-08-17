@@ -5,7 +5,7 @@ SUBDIRS := sfc
 DRIVER_SUBDIRS := sfc
 
 # This code base does not support Solarflare Siena.
-passthruparams := CONFIG_SFC_SIENA=
+passthruparams := CONFIG_SFC_SIENA= CONFIG_SFC_ONLOAD=
 
 all:
 	+@$(MakeSubdirs)
