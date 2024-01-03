@@ -38,9 +38,9 @@ struct efct_rx_descriptor
 
 /* pkt_ids are:
  *  bits 0..15 packet index in superbuf
- *  bits 16..26 superbuf index
- *  bits 27..29 rxq (as an index in to vi->efct_rxq, not as a hardware ID)
- *  bits 30..31 unused/zero
+ *  bits 16..24 superbuf index
+ *  bits 25..27 rxq (as an index in to vi->efct_rxq, not as a hardware ID)
+ *  bits 28..31 unused/zero
  *  [NB: bit 31 is stolen by some users to cache the superbuf's sentinel]
  * This layout is not part of the stable ABI. rxq index is slammed up against
  * superbuf index to allow for dirty tricks where we mmap all superbufs in
@@ -48,7 +48,7 @@ struct efct_rx_descriptor
  */
 
 #define PKT_ID_PKT_BITS  16
-#define PKT_ID_SBUF_BITS 11
+#define PKT_ID_SBUF_BITS  9
 #define PKT_ID_RXQ_BITS   3
 #define PKT_ID_TOTAL_BITS (PKT_ID_PKT_BITS + PKT_ID_SBUF_BITS + PKT_ID_RXQ_BITS)
 

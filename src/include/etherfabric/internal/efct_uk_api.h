@@ -14,7 +14,7 @@
 
 /* Max superbufs permitted to be assigned to a single rxq, across the whole
  * system. */
-#define CI_EFCT_MAX_SUPERBUFS   2048
+#define CI_EFCT_MAX_SUPERBUFS   512
 
 /* As defined by the CPU architecture */
 #define CI_HUGEPAGE_SIZE   2097152
