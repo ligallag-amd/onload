@@ -1,41 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/* X-SPDX-Copyright-Text: (c) Copyright 2005-2020 Xilinx, Inc. */
-/****************************************************************************
- * Driver for Solarflare network controllers -
- *          resource management for Xen backend, OpenOnload, etc
- *           (including support for SFE4001 10GBT NIC)
- *
- * This file contains driverlink code which interacts with the sfc network
- * driver.
- *
- * Copyright 2005-2007: Solarflare Communications Inc,
- *                      9501 Jeronimo Road, Suite 250,
- *                      Irvine, CA 92618, USA
- *
- * Developed and maintained by Solarflare Communications:
- *                      <linux-xen-drivers@solarflare.com>
- *                      <onload-dev@solarflare.com>
- *
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2 as published
- * by the Free Software Foundation, incorporated herein by reference.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- ****************************************************************************
- */
-
+/* X-SPDX-Copyright-Text: Copyright (C) 2005-2024, Advanced Micro Devices, Inc. */
 
 #include "linux_resource_internal.h"
 
 #include <ci/driver/driverlink_api.h>
+#include <ci/driver/ci_ef10.h>
 
 #include "efrm_internal.h"
 #include <ci/driver/kernel_compat.h>
@@ -55,7 +24,7 @@
 #include <ci/driver/resource/linux_efhw_nic.h>
 #include <ci/driver/resource/driverlink.h>
 
-
+#if 0
 /* The DL driver and associated calls */
 static int efrm_dl_probe(struct efx_dl_device *efrm_dev,
 			 const struct net_device *net_dev,
@@ -463,7 +432,15 @@ efrm_dl_probe(struct efx_dl_device *efrm_dev,
 	efrm_notify_nic_probe(nic, net_dev);
 	return 0;
 }
+#endif
 
+static int ef10_probe(struct auxiliary_device *auxdev,
+                      const struct auxiliary_device_id *id)
+{
+  return -ENOSYS;
+}
+
+#if 0
 /* When we unregister ourselves on module removal, this function will be
  * called for all the devices we claimed. It will also be called on a single
  * device if that device is unplugged.
@@ -496,7 +473,13 @@ static void efrm_dl_remove(struct efx_dl_device *efrm_dev)
 		ci_atomic32_or(&nic->resetting, NIC_RESETTING_FLAG_UNPLUGGED);
 	}
 }
+#endif
 
+void ef10_remove(struct auxiliary_device *auxdev)
+{
+}
+
+#if 0
 static void efrm_dl_reset_suspend(struct efx_dl_device *efrm_dev)
 {
 	struct efhw_nic *nic = efrm_dev->priv;
@@ -686,3 +669,19 @@ efrm_dl_event(struct efx_dl_device *efx_dev, void *p_event, int budget)
 	rc = efhw_nic_handle_event(nic, ev, budget);
 	return rc;
 }
+#endif
+
+static const struct auxiliary_device_id ef10_id_table[] = {
+  { .name = "sfc." EFX_ONLOAD_DEVNAME, },
+  {},
+};
+MODULE_DEVICE_TABLE(auxiliary, ef10_id_table);
+
+
+struct auxiliary_driver ef10_drv = {
+  .name = "ef10",
+  .probe = ef10_probe,
+  .remove = ef10_remove,
+  .id_table = ef10_id_table,
+};
+

@@ -48,7 +48,10 @@ UTILS_SRCS	:= hugetlb.c
 
 ifeq ($(HAVE_SFC),1)
 RESOURCE_SRCS += driverlink_new.c
+EFHW_EF10_SRCS	:= aux_ef10.c
 EFHW_SRCS += ef10.c ef100.c
+else
+EFHW_EF10_SRCS	:=
 endif
 
 ifeq ($(HAVE_EF10CT),1)
@@ -60,6 +63,7 @@ endif
 
 IMPORT		:= $(EFHW_SRCS:%=../../lib/efhw/%) \
 		   $(EFHW_HDRS:%=../../lib/efhw/%) \
+		   $(EFHW_EF10_SRCS:%=../../lib/efhw/ef10/%) \
 		   $(EFHW_EF10CT_SRCS:%=../../lib/efhw/ef10ct/%) \
 		   $(EFRM_SRCS:%=../../lib/efrm/%) \
 		   $(EFRM_HDRS:%=../../lib/efrm/%) \
