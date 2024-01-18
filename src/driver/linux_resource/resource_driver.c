@@ -88,7 +88,8 @@ const int max_hardware_init_repeats = 1;
  *
  *--------------------------------------------------------------------*/
 
-int pio = 1;
+/* FIXME SCJ until pio is sorted */
+int pio = 0;
 module_param(pio, int, S_IRUGO);
 MODULE_PARM_DESC(pio,
                  "Set to 0 to prevent this driver from using PIO");
@@ -107,7 +108,8 @@ MODULE_PARM_DESC(enable_accel_by_default,
 		 "enabled in this way to allow Onload acceleration or "
 		 "use of ef_vi.");
 
-int enable_driverlink = 1;
+/* FIXME SCJ easier to enable on demand */
+int enable_driverlink = 0;
 module_param(enable_driverlink, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(enable_driverlink,
 				 "Attach SFC devices using driverlink interface."

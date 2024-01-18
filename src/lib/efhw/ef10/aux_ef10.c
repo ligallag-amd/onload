@@ -71,139 +71,6 @@ efhw_nic_from_netdev(
 	return NULL;
 }
 
-static void
-init_vi_resource_dimensions(struct vi_resource_dimensions *rd,
-			    const struct efx_dl_ef10_resources *ef10_res,
-			    const struct efx_dl_irq_resources *irq_res)
-{
-	if (ef10_res != NULL) {
-		rd->vi_min = ef10_res->vi_min;
-		rd->vi_lim = ef10_res->vi_lim;
-		/* rss_channel_count is the number of rss channels the net
-		 * driver is using.  The net driver also exposes
-		 * rx_channel_count which is how many there are available in
-		 * total to use.
-		 */
-		rd->rss_channel_count = ef10_res->rx_channel_count;
-		rd->vi_base = ef10_res->vi_base;
-		rd->vi_shift = ef10_res->vi_shift;
-		rd->mem_bar = ef10_res->mem_bar;
-		rd->vi_stride = ef10_res->vi_stride;
-
-		/* assume all the register STEPS are identical */
-		EFRM_BUILD_ASSERT(ER_DZ_EVQ_RPTR_REG_STEP == ER_DZ_EVQ_TMR_REG_STEP);
-		EFRM_BUILD_ASSERT(ER_DZ_EVQ_RPTR_REG_STEP == ER_DZ_RX_DESC_UPD_REG_STEP);
-		EFRM_BUILD_ASSERT(ER_DZ_EVQ_RPTR_REG_STEP == ER_DZ_TX_DESC_UPD_REG_STEP);
-
-		EFRM_TRACE("Using VI range %d+(%d-%d)<<%d bar %d ws 0x%x", rd->vi_base,
-			   rd->vi_min, rd->vi_lim, rd->vi_shift,
-			   rd->mem_bar, rd->vi_stride);
-	}
-
-	if (irq_res != NULL && irq_res->n_ranges > 0) {
-		unsigned i;
-
-		EFRM_ASSERT(irq_res->n_ranges <= IRQ_N_RANGES_MAX);
-		EFRM_BUILD_ASSERT(IRQ_N_RANGES_MAX == NIC_IRQ_MAX_RANGES);
-		rd->irq_n_ranges = irq_res->n_ranges;
-		rd->irq_prime_reg = irq_res->int_prime;
-		for( i = 0; i < irq_res->n_ranges; i++ ) {
-			rd->irq_ranges[i].irq_base = irq_res->irq_ranges[i].vector;
-			rd->irq_ranges[i].irq_range = irq_res->irq_ranges[i].range;
-		}
-	}
-	else {
-		rd->irq_n_ranges = 0;
-		rd->irq_prime_reg = NULL;
-	}
-}
-
-
-static ssize_t enable_store(struct device *dev,
-			    struct device_attribute *attr,
-			    const char *buf, size_t count)
-{
-	struct efhw_nic* nic;
-	bool enable;
-	nic = efhw_nic_find_by_dev(dev);
-	if (!nic)
-		return -ENOENT;
-	if (kstrtobool(buf, &enable) < 0) {
-		EFRM_ERR("%s: Cannot parse data written to %s/onload_enable.",
-		         __func__, to_net_dev(dev)->name);
-		return -EINVAL;
-	}
-	efrm_nic_set_accel_allowed(nic, enable);
-	return count;
-}
-
-
-static ssize_t enable_show(struct device *dev,
-			   struct device_attribute *attr,
-			   char *buf_out)
-{
-	struct efhw_nic* nic;
-	int enabled;
-	nic = efhw_nic_find_by_dev(dev);
-	if (!nic)
-		return -ENOENT;
-	enabled = efrm_nic_get_accel_allowed(nic);
-	return scnprintf(buf_out, PAGE_SIZE, "%d\n", enabled);
-}
-
-
-static ssize_t cpu2rxq_store(struct device *dev,
-			    struct device_attribute *attr,
-			    const char *buf, size_t count)
-{
-	struct efhw_nic* nic;
-	nic = efhw_nic_find_by_dev(dev);
-	if (!nic)
-		return -ENOENT;
-	return efrm_affinity_store_cpu2rxq(linux_efhw_nic(nic), buf, count);
-}
-
-
-static ssize_t cpu2rxq_show(struct device *dev,
-			   struct device_attribute *attr,
-			   char *buf_out)
-{
-	struct efhw_nic* nic;
-	nic = efhw_nic_find_by_dev(dev);
-	if (!nic)
-		return -ENOENT;
-	return efrm_affinity_show_cpu2rxq(linux_efhw_nic(nic), buf_out);
-}
-
-
-static DEVICE_ATTR_RW(enable);
-static DEVICE_ATTR_RW(cpu2rxq);
-
-static struct attribute *sfc_resource_attrs[] = {
-	&dev_attr_enable.attr,
-	&dev_attr_cpu2rxq.attr,
-	NULL,
-};
-static const struct attribute_group sfc_resource_group = {
-	.name = "sfc_resource",
-	.attrs = sfc_resource_attrs,
-};
-
-static void efrm_nic_add_sysfs(const struct net_device* net_dev, struct device *dev)
-{
-	int rc = sysfs_create_group(&dev->kobj, &sfc_resource_group);
-	if (!rc)
-		return;
-	EFRM_WARN("%s: Sysfs group `sfc_resource` creation failed intf=%s, rc=%d.",
-		  __func__, net_dev->name, rc);
-}
-
-static void efrm_nic_del_sysfs(struct device *dev)
-{
-	sysfs_remove_group(&dev->kobj, &sfc_resource_group);
-}
-
-
 /* Determines whether a known NIC is equivalent to one that would be
  * instantiated according to a [pci_dev] and an [efhw_device_type]. The
  * intended use-case is to check whether a new NIC can step into the shoes of
@@ -335,148 +202,211 @@ efrm_get_rediscovered_nic(struct pci_dev* dev,
 
 	return lnic;
 }
-
-
-static int
-efrm_dl_probe(struct efx_dl_device *efrm_dev,
-	      const struct net_device *net_dev,
-	      const struct efx_dl_device_info *dev_info,
-	      const char *silicon_rev)
-{
-	struct vi_resource_dimensions res_dim;
-	struct efx_dl_ef10_resources *ef10_res = NULL;
-	struct efx_dl_irq_resources *irq_res = NULL;
-	struct linux_efhw_nic *lnic;
-	struct efhw_nic *nic;
-	struct efhw_device_type dev_type;
-	unsigned probe_flags = 0;
-        unsigned timer_quantum_ns = 0;
-	int rc;
-
-	if (!enable_driverlink) {
-		EFRM_NOTICE("%s: Driverlink reports sfc device %s, "
-			    "ignoring as module param enable_driverlink=0",
-			    __func__, net_dev->name);
-		return -EPERM;
-	}
-	efrm_dev->priv = NULL;
-
-	efx_dl_search_device_info(dev_info, EFX_DL_EF10_RESOURCES,
-				  struct efx_dl_ef10_resources,
-				  hdr, ef10_res);
-	if (ef10_res != NULL) {
-		timer_quantum_ns = ef10_res->timer_quantum_ns;
-
-		/* On EF10, the rx_prefix will get set by reading from
-		 * the firmware in efhw_nic_init_hardware(), so leave
-		 * hash_prefix as zero
-		 */
-	}
-	else {
-		EFRM_ERR("%s: Unable to find driverlink resources",  __func__);
-		return -EINVAL;
-	}
-
-	efx_dl_search_device_info(dev_info, EFX_DL_IRQ_RESOURCES,
-				  struct efx_dl_irq_resources,
-				  hdr, irq_res);
-
-	init_vi_resource_dimensions(&res_dim, ef10_res, irq_res);
-
-	rc = efhw_sfc_device_type_init(&dev_type, efrm_dev->pci_dev);
-	if (rc < 0) {
-		EFRM_ERR("%s: efhw_device_type_init failed %04x:%04x rc %d",
-			 __func__, (unsigned) efrm_dev->pci_dev->vendor,
-			 (unsigned) efrm_dev->pci_dev->device, rc);
-		return rc;
-	}
-	EFRM_NOTICE("%s pci_dev=%04x:%04x(%d) type=%d:%c%d ifindex=%d",
-		    pci_name(efrm_dev->pci_dev) ?
-		    pci_name(efrm_dev->pci_dev) : "?",
-		    (unsigned) efrm_dev->pci_dev->vendor,
-		    (unsigned) efrm_dev->pci_dev->device,
-		    dev_type.revision, dev_type.arch, dev_type.variant,
-		    dev_type.revision, net_dev->ifindex);
-	switch (dev_type.arch) {
-	case EFHW_ARCH_EF10:
-		res_dim.efhw_ops = &ef10_char_functional_units;
-		break;
-	case EFHW_ARCH_EF100:
-		res_dim.efhw_ops = &ef100_char_functional_units;
-		break;
-	default:
-		EFRM_ASSERT(false);
-	}
-
-	lnic = efrm_get_rediscovered_nic(efrm_dev->pci_dev, &dev_type,
-					 &res_dim);
-	rc = efrm_nic_add(efrm_dev, &efrm_dev->pci_dev->dev, &dev_type,
-			  probe_flags,
-			  (/*no const*/ struct net_device *)net_dev,
-			  &lnic, &res_dim, timer_quantum_ns);
-	if (rc != 0)
-		return rc;
-
-	efrm_nic_add_sysfs(net_dev, &efrm_dev->pci_dev->dev);
-	/* Store pointer to net driver's driverlink device info.  It
-	 * is guaranteed not to move, and we can use it to update our
-	 * state in a reset_resume callback
-	 */
-	lnic->efrm_nic.dl_dev_info = dev_info;
-
-	nic = &lnic->efrm_nic.efhw_nic;
-	nic->mtu = net_dev->mtu + ETH_HLEN; /* ? + ETH_VLAN_HLEN */
-	nic->rss_channel_count = ef10_res->rss_channel_count;
-	efrm_dev->priv = nic;
-
-	efrm_notify_nic_probe(nic, net_dev);
-	return 0;
-}
 #endif
+
+
+static int init_resource_info(struct efx_auxdev *edev,
+                              struct efx_auxdev_client *client,
+                              struct vi_resource_dimensions *rd,
+                              struct pci_dev **pci_dev,
+                              unsigned int *tq)
+{
+  struct efx_auxdev_dl_vi_resources *vi_res;
+  union efx_auxiliary_param_value val;
+  int rc;
+
+  vi_res = edev->ops->dl_publish(client);
+  if( IS_ERR(vi_res) )
+    return PTR_ERR(vi_res);
+  *pci_dev = vi_res->pci_dev;
+  /* FIXME SCJ pci_dev handling */
+  rd->pci_dev = *pci_dev;
+
+  /* FIXME SCJ how does cleanup work, do we need to call dl_unpublish? */
+  rc = edev->ops->get_param(client, EFX_MEMBASE, &val);
+  if( rc < 0 )
+    return rc;
+
+  rc = edev->ops->get_param(client, EFX_TIMER_QUANTUM_NS, &val);
+  if( rc < 0 )
+    return rc;
+  *tq = val.value;
+
+  rd->vi_min = vi_res->vi_min;
+  rd->vi_lim = vi_res->vi_lim;
+  /* FIXME SCJ confirm that rx_channel_count is the right value */
+  rd->rss_channel_count = vi_res->rss_channel_count;
+  rd->vi_base = vi_res->vi_base;
+  rd->vi_shift = vi_res->vi_shift;
+  rd->vi_stride = vi_res->vi_stride;
+  rd->mem_bar = vi_res->mem_bar;
+
+  /* assume all the register STEPS are identical */
+  EFRM_BUILD_ASSERT(ER_DZ_EVQ_RPTR_REG_STEP == ER_DZ_EVQ_TMR_REG_STEP);
+  EFRM_BUILD_ASSERT(ER_DZ_EVQ_RPTR_REG_STEP == ER_DZ_RX_DESC_UPD_REG_STEP);
+  EFRM_BUILD_ASSERT(ER_DZ_EVQ_RPTR_REG_STEP == ER_DZ_TX_DESC_UPD_REG_STEP);
+
+  EFRM_TRACE("Using VI range %d+(%d-%d)<<%d bar %d ws 0x%x", rd->vi_base,
+             rd->vi_min, rd->vi_lim, rd->vi_shift, rd->mem_bar, rd->vi_stride);
+
+  /* The net driver manages our interrupts for ef10. */
+  rd->irq_n_ranges = 0;
+  rd->irq_prime_reg = NULL;
+
+  rd->efhw_ops = &ef10aux_char_functional_units;
+
+  return 0;
+}
+
+
+static struct linux_efhw_nic*
+efrm_get_rediscovered_nic(struct pci_dev* dev,
+                          const struct efhw_device_type* dev_type,
+                          const struct vi_resource_dimensions* res_dim)
+{
+  /* FIXME SCJ consider hotplug */
+  return NULL;
+}
+
+
+/* FIXME API driver data token? Return budget consumed? Can we have the dev here? */
+static void ef10_handler(struct efx_auxdev_client *client,
+                         const struct efx_auxdev_event *event)
+{
+  EFRM_TRACE("%s: %s", __func__, dev_name(&client->auxdev->auxdev.dev));
+}
 
 static int ef10_probe(struct auxiliary_device *auxdev,
                       const struct auxiliary_device_id *id)
 {
-  return -ENOSYS;
-}
+  struct efx_auxdev *edev = to_efx_auxdev(auxdev);
+  struct vi_resource_dimensions res_dim;
+  struct efx_auxdev_client *client;
+  union efx_auxiliary_param_value val;
+  struct efhw_device_type dev_type;
+  unsigned timer_quantum_ns;
+  struct linux_efhw_nic *lnic;
+  struct efhw_nic *nic;
+  struct net_device *net_dev;
+  struct pci_dev *pci_dev;
+  int rc;
+
+  client = edev->ops->open(auxdev, &ef10_handler, EFX_AUXDEV_ALL_EVENTS);
+
+  EFRM_NOTICE("%s name %s", __func__, id->name);
+
+  if( IS_ERR(client) ) {
+    rc = PTR_ERR(client);
+    goto fail1;
+  }
+
+  rc = edev->ops->get_param(client, EFX_NETDEV, &val);
+  if( rc < 0 )
+    goto fail2;
+  net_dev = val.net_dev;
+
+  rc = init_resource_info(edev, client, &res_dim, &pci_dev, &timer_quantum_ns);
+  if( rc < 0 )
+    goto fail2;
+
+  rc = efhw_sfc_device_type_init(&dev_type, pci_dev);
+  if( rc < 0 ) {
+    EFRM_ERR("%s: efhw_device_type_init failed %04x:%04x rc %d",
+    __func__, (unsigned) pci_dev->vendor,
+    (unsigned) pci_dev->device, rc);
+    goto fail2;
+  }
+
+  EFRM_NOTICE("%s pci_dev=%04x:%04x(%d) type=%d:%c%d ifindex=%d",
+              pci_name(pci_dev) ?  pci_name(pci_dev) : "?",
+              (unsigned) pci_dev->vendor,
+              (unsigned) pci_dev->device, dev_type.revision,
+              dev_type.arch, dev_type.variant, dev_type.revision,
+              net_dev->ifindex);
+
+  lnic = efrm_get_rediscovered_nic(pci_dev, &dev_type, &res_dim);
+
+  /* FIXME SCJ check probe flags - do we need this */
+  rc = efrm_nic_add(client, &auxdev->dev, &dev_type, 0,
+                    (/*no const*/ struct net_device *)net_dev, &lnic, &res_dim,
+                    timer_quantum_ns);
+  if( rc < 0 )
+    goto fail2;
 
 #if 0
+  efrm_nic_add_sysfs(net_dev, &efrm_dev->pci_dev->dev);
+#endif
+
+  /* FIXME SCJ dl stores pointer for dl_dev_info here */
+  nic = &lnic->efrm_nic.efhw_nic;
+  nic->mtu = net_dev->mtu + ETH_HLEN; /* ? + ETH_VLAN_HLEN */
+  nic->rss_channel_count = res_dim.rss_channel_count;
+  /* FIXME SCJ work out the best way to deal with having both aux and pci dev */
+  nic->pci_dev = pci_dev;
+
+  val.driver_data = nic;
+  rc = edev->ops->set_param(client, EFX_DRIVER_DATA, &val);
+  /* FIXME SCJ check this failure path */
+  if( rc < 0 )
+    goto fail3;
+
+  efrm_notify_nic_probe(nic, net_dev);
+  return 0;
+
+ fail3:
+  efrm_nic_unplug(nic);
+ fail2:
+  edev->ops->close(client);
+ fail1:
+  return rc;
+}
+
 /* When we unregister ourselves on module removal, this function will be
  * called for all the devices we claimed. It will also be called on a single
  * device if that device is unplugged.
  */
-static void efrm_dl_remove(struct efx_dl_device *efrm_dev)
-{
-	struct efhw_nic *nic = efrm_dev->priv;
-	EFRM_TRACE("%s called", __func__);
-	efrm_nic_del_sysfs(&efrm_dev->pci_dev->dev);
-	if (nic) {
-		struct linux_efhw_nic *lnic = linux_efhw_nic(nic);
-
-		efrm_notify_nic_remove(nic);
-
-                /* flush all outstanding dma queues */
-                efrm_nic_flush_all_queues(nic, 0);
-
-		lnic->drv_device = NULL;
-                lnic->efrm_nic.dl_dev_info = NULL;
-
-		/* Wait for all in-flight driverlink calls to finish.  Since we
-		 * have already cleared [lnic->drv_device], no new calls can
-		 * start. */
-		efhw_nic_flush_drv(nic);
-
-		efrm_nic_unplug(nic);
-
-		/* Absent hardware is treated as a protracted reset. */
-		efrm_nic_reset_suspend(nic);
-		ci_atomic32_or(&nic->resetting, NIC_RESETTING_FLAG_UNPLUGGED);
-	}
-}
-#endif
-
 void ef10_remove(struct auxiliary_device *auxdev)
 {
+  struct efx_auxdev *edev = to_efx_auxdev(auxdev);
+  struct efx_auxdev_client *client;
+  struct linux_efhw_nic *lnic;
+  struct efhw_nic *nic;
+
+  EFRM_TRACE("%s: %s", __func__, dev_name(&auxdev->dev));
+
+  nic = efhw_nic_find_by_dev(&auxdev->dev);
+  if( !nic )
+    return;
+
+#if 0
+  efrm_nic_del_sysfs(&efrm_dev->pci_dev->dev);
+#endif
+  lnic = linux_efhw_nic(nic);
+  client = (struct efx_auxdev_client*)lnic->drv_device;
+  if( !client )
+    return;
+
+  efrm_notify_nic_remove(nic);
+
+  /* flush all outstanding dma queues */
+  efrm_nic_flush_all_queues(nic, 0);
+
+  lnic->drv_device = NULL;
+#if 0
+  lnic->efrm_nic.dl_dev_info = NULL;
+#endif
+
+  /* Wait for all in-flight driverlink calls to finish.  Since we
+   * have already cleared [lnic->drv_device], no new calls can
+   * start. */
+  efhw_nic_flush_drv(nic);
+  efrm_nic_unplug(nic);
+
+  /* Absent hardware is treated as a protracted reset. */
+  efrm_nic_reset_suspend(nic);
+  ci_atomic32_or(&nic->resetting, NIC_RESETTING_FLAG_UNPLUGGED);
+
+  edev->ops->close(client);
 }
 
 #if 0
@@ -670,6 +600,7 @@ efrm_dl_event(struct efx_dl_device *efx_dev, void *p_event, int budget)
 	return rc;
 }
 #endif
+
 
 static const struct auxiliary_device_id ef10_id_table[] = {
   { .name = "sfc." EFX_ONLOAD_DEVNAME, },

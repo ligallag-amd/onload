@@ -48,7 +48,7 @@ UTILS_SRCS	:= hugetlb.c
 
 ifeq ($(HAVE_SFC),1)
 RESOURCE_SRCS += driverlink_new.c
-EFHW_EF10_SRCS	:= aux_ef10.c
+EFHW_EF10_SRCS	:= aux_ef10.c ef10.c
 EFHW_SRCS += ef10.c ef100.c
 else
 EFHW_EF10_SRCS	:=
