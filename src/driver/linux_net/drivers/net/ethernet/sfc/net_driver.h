@@ -87,6 +87,7 @@
 #endif
 #endif
 #include "filter.h"
+#include "mcdi_filters.h"
 
 #include "workarounds.h"
 
@@ -97,7 +98,7 @@
  **************************************************************************/
 
 #ifdef EFX_NOT_UPSTREAM
-#define EFX_DRIVER_VERSION	"5.3.18.1006"
+#define EFX_DRIVER_VERSION	"5.4.0.1003"
 #endif
 
 #ifdef DEBUG
@@ -1248,7 +1249,6 @@ struct efx_nic_errors {
 };
 
 struct vfdi_status;
-struct sfc_rdma_dev;
 
 /* Useful collections of RSS flags.  Caller needs mcdi_pcol.h. */
 #define RSS_CONTEXT_FLAGS_DEFAULT	(1 << MC_CMD_RSS_CONTEXT_GET_FLAGS_OUT_TOEPLITZ_IPV4_EN_LBN |\
@@ -1389,6 +1389,36 @@ enum efx_buf_alloc_mode {
 };
 
 struct efx_mae;
+
+#ifdef EFX_NOT_UPSTREAM
+/**
+ * struct efx_vi_resources - VI resource information
+ *
+ * @vi_base: Absolute index of first VI in this function.  This may change
+ *	after a reset.  Clients that cache this value will need to update
+ *	the cached value in their reset_resume() function.
+ * @vi_min: Relative index of first available VI
+ * @vi_lim: Relative index of last available VI + 1
+ * @timer_quantum_ns: Timer quantum (nominal period between timer ticks)
+ *      for wakeup timers, in nanoseconds.
+ * @rss_channel_count: Number of receive channels used for RSS.
+ * @rx_channel_count: Number of receive channels available for use.
+ * @vi_shift: Shift value for absolute VI number computation.
+ * @vi_stride: size in bytes of a single VI.
+ * @mem_bar: PCIe memory BAR index.
+ */
+struct efx_vi_resources {
+	unsigned int vi_base;
+	unsigned int vi_min;
+	unsigned int vi_lim;
+	unsigned int timer_quantum_ns;
+	unsigned int rss_channel_count;
+	unsigned int rx_channel_count;
+	unsigned int vi_shift;
+	unsigned int vi_stride;
+	unsigned int mem_bar;
+};
+#endif
 
 /**
  * struct efx_nic - an Efx NIC
@@ -1606,7 +1636,6 @@ struct efx_nic {
 #endif
 	resource_size_t membase_phys;
 	void __iomem *membase;
-	struct sfc_rdma_dev *rdev;
 
 	unsigned int vi_stride;
 
@@ -1657,6 +1686,8 @@ struct efx_nic {
 	unsigned int rx_dc_base;
 	unsigned int sram_lim_qw;
 #ifdef EFX_NOT_UPSTREAM
+	/** @vi_resources: general VI resource values */
+	struct efx_vi_resources vi_resources;
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	/** @n_dl_irqs: Number of IRQs to reserve for driverlink */
 	int n_dl_irqs;
@@ -1823,17 +1854,15 @@ struct efx_nic {
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	/** @dl_nic: Efx driverlink nic */
 	struct efx_dl_nic dl_nic;
-	/**
-	 * @dl_block_kernel_mutex: Mutex protecting @dl_block_kernel_count
+#endif
+	/* @block_kernel_mutex: Mutex protecting @block_kernel_count
 	 *	and corresponding per-client state
 	 */
-	struct mutex dl_block_kernel_mutex;
-	/**
-	 * @dl_block_kernel_count: Number of times Driverlink clients are
-	 *	blocking the kernel stack from receiving packets
+	struct mutex block_kernel_mutex;
+	/* @block_kernel_count: Number of times clients are blocking the
+	 *	kernel stack from receiving packets
 	 */
-	unsigned int dl_block_kernel_count[EFX_DL_FILTER_BLOCK_KERNEL_MAX];
-#endif
+	unsigned int block_kernel_count[EFX_FILTER_BLOCK_KERNEL_MAX];
 #endif
 
 #ifdef CONFIG_DEBUG_FS
@@ -1910,13 +1939,38 @@ struct efx_nic {
 
 /**
  * struct efx_probe_data - State after hardware probe
- * @pci_dev: The PCI device
  * @efx: Efx NIC details
+ * @pci_dev: The PCI device
  */
 struct efx_probe_data {
-	struct pci_dev *pci_dev;
 	struct efx_nic efx;
+	struct pci_dev *pci_dev;
+#ifdef EFX_NOT_UPSTREAM
+#if !defined(EFX_USE_KCOMPAT) || defined (EFX_HAVE_XARRAY)
+	/**
+	 * @client_type: Data for each type of client. Non-NULL if a
+	 *	type is supported and enabled.
+	 */
+	struct efx_client_type_data *client_type[_EFX_CLIENT_MAX];
+	/**
+	 * @fw_client_support_probed: Set if firmware support for client
+	 *	handles has been determined
+	 */
+	bool fw_client_support_probed;
+	/**
+	 * @fw_client_supported: Set if the firmware supports client handles.
+	 *	This attribute is only valid when @fw_client_support_probed
+	 *	is %true
+	 */
+	bool fw_client_supported;
+#endif
+#endif
 };
+
+static inline struct efx_probe_data *efx_nic_to_probe_data(struct efx_nic *efx)
+{
+	return container_of(efx, struct efx_probe_data, efx);
+}
 
 static inline struct efx_nic *efx_netdev_priv(struct net_device *dev)
 {
@@ -2357,21 +2411,22 @@ struct efx_nic_type {
 	 */
 	int (*filter_redirect)(struct efx_nic *efx, u32 filter_id,
 			       u32 *rss_context, int rxq_i, int stack_id);
-#if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	/**
 	 * @filter_block_kernel: Block kernel from receiving packets except
 	 *	through explicit configuration, i.e. remove and disable
 	 *	filters with priority < MANUAL
 	 */
 	int (*filter_block_kernel)(struct efx_nic *efx,
-				   enum efx_dl_filter_block_kernel_type type);
+				   enum efx_filter_block_kernel_type type);
 	/**
 	 * @filter_unblock_kernel: Unblock kernel, i.e. enable automatic
 	 *	and hint filters
 	 */
 	void (*filter_unblock_kernel)(struct efx_nic *efx, enum
-				      efx_dl_filter_block_kernel_type type);
-#endif
+				      efx_filter_block_kernel_type type);
+	/** @client_supported: check if a client type is supported */
+	bool (*client_supported)(struct efx_nic *efx,
+				 enum efx_client_type type);
 #endif
 	/** @regionmap_buffer: Check if buffer is in accessible region */
 	int (*regionmap_buffer)(struct efx_nic *efx, dma_addr_t *dma_addr);
@@ -2467,6 +2522,8 @@ struct efx_nic_type {
 	unsigned int supported_interrupt_modes;
 	unsigned int timer_period_max;
 #ifdef EFX_NOT_UPSTREAM
+	/** @vi_resources: general VI resource values */
+	struct efx_vi_resources vi_resources;
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	/**
 	 * @ef10_resources: Resources to be shared via driverlink (copied

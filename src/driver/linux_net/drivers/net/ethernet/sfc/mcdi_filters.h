@@ -10,7 +10,12 @@
 #ifndef EFX_MCDI_FILTERS_H
 #define EFX_MCDI_FILTERS_H
 
-#include "net_driver.h"
+#include "filter.h"
+
+/* forward declarations */
+struct efx_nic;
+struct efx_rss_context;
+struct efx_filter_spec;
 
 /* set up basic operations required for all net devices */
 int efx_mcdi_filter_table_probe(struct efx_nic *efx, bool additional_rss);
@@ -79,12 +84,21 @@ int efx_mcdi_filter_get_safe(struct efx_nic *efx,
 			     u32 filter_id, struct efx_filter_spec *spec);
 
 #ifdef EFX_NOT_UPSTREAM
-#if IS_MODULE(CONFIG_SFC_DRIVERLINK)
+/**
+ * enum efx_filter_block_kernel_type - filter types
+ * @EFX_FILTER_BLOCK_KERNEL_UCAST: Unicast
+ * @EFX_FILTER_BLOCK_KERNEL_MCAST: Multicast
+ * @EFX_FILTER_BLOCK_KERNEL_MAX: Limit of enum values
+ */
+enum efx_filter_block_kernel_type {
+	EFX_FILTER_BLOCK_KERNEL_UCAST = 0,
+	EFX_FILTER_BLOCK_KERNEL_MCAST,
+	EFX_FILTER_BLOCK_KERNEL_MAX,
+};
 int efx_mcdi_filter_block_kernel(struct efx_nic *efx,
-				 enum efx_dl_filter_block_kernel_type type);
+				 enum efx_filter_block_kernel_type type);
 void efx_mcdi_filter_unblock_kernel(struct efx_nic *efx,
-				    enum efx_dl_filter_block_kernel_type type);
-#endif
+				    enum efx_filter_block_kernel_type type);
 #endif
 
 u32 efx_mcdi_filter_count_rx_used(struct efx_nic *efx,

@@ -52,7 +52,9 @@
 #include "rx_common.h"
 #include "tx_common.h"
 #include "efx_devlink.h"
-#include "efx_auxbus.h"
+#ifdef EFX_NOT_UPSTREAM
+#include "efx_client.h"
+#endif
 #include "selftest.h"
 #include "sriov.h"
 #include "xdp.h"
@@ -169,12 +171,6 @@ static unsigned int tx_ring = EFX_DEFAULT_TX_DMAQ_SIZE;
 module_param(tx_ring, uint, 0644);
 MODULE_PARM_DESC(tx_ring,
 		 "Maximum number of descriptors in a transmit ring");
-
-#ifdef EFX_NOT_UPSTREAM
-int efx_target_num_vis = -1;
-module_param_named(num_vis, efx_target_num_vis, int, 0644);
-MODULE_PARM_DESC(num_vis, "Set number of VIs");
-#endif
 
 #ifdef EFX_NOT_UPSTREAM
 static char *performance_profile;
@@ -1077,6 +1073,7 @@ int efx_pci_probe_post_io(struct efx_nic *efx,
 	pci_dbg(efx->pci_dev, "creating NIC\n");
 
 #ifdef EFX_NOT_UPSTREAM
+	efx->vi_resources = efx->type->vi_resources;
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	/* Initialise NIC resource information */
 	efx->ef10_resources = efx->type->ef10_resources;
@@ -1195,8 +1192,6 @@ static void efx_pci_remove(struct pci_dev *pci_dev)
 	if (efx->mtd_struct)
 		(void)cancel_delayed_work_sync(&efx->mtd_struct->creation_work);
 #endif
-
-	efx_auxbus_unregister(efx);
 #if defined(EFX_NOT_UPSTREAM) && defined(EFX_USE_SFC_LRO)
 	device_remove_file(&efx->pci_dev->dev, &dev_attr_lro);
 #endif
@@ -1223,15 +1218,12 @@ static void efx_pci_remove(struct pci_dev *pci_dev)
 	efx_fini_io(efx);
 	pci_dbg(efx->pci_dev, "shutdown successful\n");
 
-	efx_fini_struct(efx);
-	pci_set_drvdata(pci_dev, NULL);
 	free_netdev(efx->net_dev);
-	probe_data = container_of(efx, struct efx_probe_data, efx);
-	kfree(probe_data);
 #if defined(EFX_USE_KCOMPAT) && defined(EFX_HAVE_PCI_ENABLE_PCIE_ERROR_REPORTING)
-
 	pci_disable_pcie_error_reporting(pci_dev);
 #endif
+	probe_data = efx_nic_to_probe_data(efx);
+	efx_fini_probe_data(probe_data);
 };
 
 /* NIC initialisation
@@ -1247,16 +1239,15 @@ static int efx_pci_probe(struct pci_dev *pci_dev,
 			 const struct pci_device_id *entry)
 {
 	struct efx_probe_data *probe_data, **probe_ptr;
+	const struct efx_nic_type *nic_type;
 	struct net_device *net_dev;
 	struct efx_nic *efx;
 	int rc;
 
-	/* Allocate probe data and struct efx_nic */
-	probe_data = kzalloc(sizeof(*probe_data), GFP_KERNEL);
-	if (!probe_data)
-		return -ENOMEM;
-	probe_data->pci_dev = pci_dev;
-	efx = &probe_data->efx;
+	nic_type = (const struct efx_nic_type *)entry->driver_data;
+	rc = efx_init_probe_data(pci_dev, nic_type, &probe_data);
+	if (rc)
+		goto fail;
 
 	/* Allocate and initialise a struct net_device */
 	net_dev = alloc_etherdev_mq(sizeof(probe_data), EFX_MAX_CORE_TX_QUEUES);
@@ -1264,16 +1255,11 @@ static int efx_pci_probe(struct pci_dev *pci_dev,
 		return -ENOMEM;
 	probe_ptr = netdev_priv(net_dev);
 	*probe_ptr = probe_data;
+	efx = &probe_data->efx;
 	efx->net_dev = net_dev;
-	efx->type = (const struct efx_nic_type *) entry->driver_data;
 
 	efx_init_features(efx);
-
-	pci_set_drvdata(pci_dev, efx);
 	SET_NETDEV_DEV(net_dev, &pci_dev->dev);
-	rc = efx_init_struct(efx, pci_dev);
-	if (rc)
-		goto fail;
 #ifdef CONFIG_SFC_MTD
 	if (efx_mtd_init(efx) < 0)
 		goto fail;
@@ -1312,11 +1298,13 @@ static int efx_pci_probe(struct pci_dev *pci_dev,
 	if (rc)
 		goto fail;
 
-	rc = efx_auxbus_register(efx);
+#ifdef EFX_NOT_UPSTREAM
+	rc = efx_client_init(probe_data);
 	if (rc)
 		pci_warn(efx->pci_dev,
-			 "Unable to register auxiliary bus driver (%d)\n", rc);
+			 "Unable to enable client support (%d)\n", rc);
 
+#endif
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XDP_SOCK)
 	efx->tx_queues_per_channel++;
 #endif

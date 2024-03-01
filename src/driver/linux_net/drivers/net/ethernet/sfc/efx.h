@@ -179,6 +179,12 @@ static inline void efx_ssr_end_of_burst(struct efx_rx_queue *rx_queue)
 #endif /* EFX_USE_SFC_LRO */
 
 /* Filters */
+/* For auxiliary bus clients we additionally include the priority in the
+ * filter ID so that we can pass it back into efx_filter_remove_id_safe().
+ */
+#define EFX_FILTER_PRI_SHIFT    28
+#define EFX_FILTER_ID_MASK      GENMASK(EFX_FILTER_PRI_SHIFT - 1, 0)
+
 /**
  * efx_filter_insert_filter - add or replace a filter
  * @efx: NIC in which to insert the filter
@@ -339,9 +345,6 @@ int efx_init_irq_moderation(struct efx_nic *efx, unsigned int tx_usecs,
 			    bool rx_may_override_tx);
 void efx_get_irq_moderation(struct efx_nic *efx, unsigned int *tx_usecs,
 			    unsigned int *rx_usecs, bool *rx_adaptive);
-#ifdef EFX_NOT_UPSTREAM
-extern int efx_target_num_vis;
-#endif
 
 /* Update the generic software stats in the passed stats array */
 void efx_update_sw_stats(struct efx_nic *efx, u64 *stats);

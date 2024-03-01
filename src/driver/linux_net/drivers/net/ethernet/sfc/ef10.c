@@ -76,6 +76,18 @@ module_param(tx_non_csum_queue, bool, 0644);
 MODULE_PARM_DESC(tx_non_csum_queue,
 		 "[SFC9100-family] Allocate dedicated TX queues for traffic "
 		 "not requiring checksum offload; default=N");
+
+/* This parameter is only useful in configurations using Onload with PFIOV.
+ * If it is too large then a small number of PFs can reserve all available VIs,
+ * leaving too few for the remaining PFs to function.
+ */
+static int efx_target_num_vis = -1;
+module_param_named(num_vis, efx_target_num_vis, int, 0644);
+MODULE_PARM_DESC(num_vis, "The number of extra VIs to allocate for Onload");
+
+/* These are the default settings for efx_target_num_vis above. */
+#define EF10_ONLOAD_PF_VIS 240
+#define EF10_ONLOAD_VF_VIS 0
 #endif
 
 #ifdef EFX_NOT_UPSTREAM
@@ -110,11 +122,6 @@ enum {
 #define EFX_EF10_DRVGEN_MAGIC(_code, _data)	((_code) | ((_data) << 8))
 #define EFX_EF10_DRVGEN_CODE(_magic)	((_magic) & 0xff)
 #define EFX_EF10_DRVGEN_DATA(_magic)	((_magic) >> 8)
-
-#ifdef EFX_NOT_UPSTREAM
-#define EF10_ONLOAD_PF_VIS 240
-#define EF10_ONLOAD_VF_VIS 0
-#endif
 
 static bool efx_ef10_hw_unavailable(struct efx_nic *efx);
 static void _efx_ef10_rx_write(struct efx_rx_queue *rx_queue);
@@ -257,6 +264,16 @@ static int efx_ef10_init_datapath_caps(struct efx_nic *efx)
 		pci_err(efx->pci_dev,
 			"current firmware does not support an RX prefix\n");
 		return -ENODEV;
+	}
+	efx->max_vis = EFX_MAX_CHANNELS; /* What the driver can handle */
+	if (outlen >= MC_CMD_GET_CAPABILITIES_V2_OUT_LEN) {
+		u16 port = MCDI_ARRAY_BYTE(outbuf,
+					   GET_CAPABILITIES_V2_OUT_PFS_TO_PORTS_ASSIGNMENT,
+					   nic_data->pf_index);
+		if (port < MC_CMD_GET_CAPABILITIES_V2_OUT_INCOMPATIBLE_ASSIGNMENT)
+			efx->max_vis = MCDI_ARRAY_WORD(outbuf,
+						       GET_CAPABILITIES_V2_OUT_NUM_VIS_PER_PORT,
+						       port);
 	}
 
 	if (outlen >= MC_CMD_GET_CAPABILITIES_V3_OUT_LEN) {
@@ -946,9 +963,9 @@ static int efx_ef10_alloc_vis(struct efx_nic *efx,
 	struct efx_ef10_nic_data *nic_data = efx->nic_data;
 
 	return efx_mcdi_alloc_vis(efx, min_vis, max_vis,
-#if defined(EFX_NOT_UPSTREAM) && IS_MODULE(CONFIG_SFC_DRIVERLINK)
-				  &efx->ef10_resources.vi_base,
-				  &efx->ef10_resources.vi_shift,
+#if defined(EFX_NOT_UPSTREAM)
+				  &efx->vi_resources.vi_base,
+				  &efx->vi_resources.vi_shift,
 #else
 				  NULL, NULL,
 #endif
@@ -974,8 +991,9 @@ static int efx_ef10_dimension_resources(struct efx_nic *efx)
 {
 #ifdef EFX_NOT_UPSTREAM
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
-	struct efx_dl_ef10_resources *res = &efx->ef10_resources;
+	struct efx_dl_ef10_resources *ef10_res = &efx->ef10_resources;
 #endif
+	struct efx_vi_resources *vi_res = &efx->vi_resources;
 #endif
 	struct efx_ef10_nic_data *nic_data = efx->nic_data;
 	unsigned int uc_mem_map_size, wc_mem_map_size;
@@ -1008,12 +1026,18 @@ static int efx_ef10_dimension_resources(struct efx_nic *efx)
 
 	tx_vis += efx_xdp_channels(efx) * efx->xdp_tx_per_channel;
 
+	max_vis = efx->max_vis;
+	if (!max_vis) {
+		netif_dbg(efx, drv, efx->net_dev,
+			  "NIC does not support full-featured VIs.\n");
+		return -ENOSPC;
+	}
 	channel_vis = max(rx_vis, tx_vis);
-	if (efx->max_vis && efx->max_vis < channel_vis) {
+	if (max_vis < channel_vis) {
 		netif_dbg(efx, drv, efx->net_dev,
 			  "Reducing channel VIs from %u to %u\n",
-			  channel_vis, efx->max_vis);
-		channel_vis = efx->max_vis;
+			  channel_vis, max_vis);
+		channel_vis = max_vis;
 	}
 
 #ifdef EFX_USE_PIO
@@ -1177,18 +1201,25 @@ static int efx_ef10_dimension_resources(struct efx_nic *efx)
 		  uc_mem_map_size, nic_data->wc_membase, wc_mem_map_size);
 
 #ifdef EFX_NOT_UPSTREAM
+	vi_res->vi_min = DIV_ROUND_UP(uc_mem_map_size + wc_mem_map_size,
+				      efx->vi_stride);
+	vi_res->vi_lim = nic_data->n_allocated_vis;
+	vi_res->timer_quantum_ns = efx->timer_quantum_ns;
+	vi_res->rss_channel_count = efx->rss_spread;
+	vi_res->rx_channel_count = efx_rx_channels(efx);
+	vi_res->vi_stride = efx->vi_stride;
+	vi_res->mem_bar = efx->type->mem_bar(efx);
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
-	res->vi_min = DIV_ROUND_UP(uc_mem_map_size + wc_mem_map_size,
-				   efx->vi_stride);
-	res->vi_lim = nic_data->n_allocated_vis;
-	res->timer_quantum_ns = efx->timer_quantum_ns;
-	res->rss_channel_count = efx->rss_spread;
-	res->rx_channel_count = efx_rx_channels(efx);
-	res->flags |= EFX_DL_EF10_USE_MSI;
-	res->vi_stride = efx->vi_stride;
-	res->mem_bar = efx->type->mem_bar(efx);
+	ef10_res->vi_min = vi_res->vi_min;
+	ef10_res->vi_lim = vi_res->vi_lim;
+	ef10_res->timer_quantum_ns = vi_res->timer_quantum_ns;
+	ef10_res->rss_channel_count = vi_res->rss_channel_count;
+	ef10_res->rx_channel_count = vi_res->rx_channel_count;
+	ef10_res->flags |= EFX_DL_EF10_USE_MSI;
+	ef10_res->vi_stride = vi_res->vi_stride;
+	ef10_res->mem_bar = vi_res->mem_bar;
 
-	efx->dl_nic.dl_info = &res->hdr;
+	efx->dl_nic.dl_info = &ef10_res->hdr;
 #endif
 #endif
 	return 0;
@@ -5419,7 +5450,7 @@ static int efx_ef10_probe_post_io(struct efx_nic *efx)
 	 * Note we have more TX queues than channels, so TX queues are the
 	 * limit on the number of channels we can have with our VIs.
 	 */
-	efx->max_vis = bar_size / efx->vi_stride;
+	efx->max_vis = min(efx->max_vis, (u16)(bar_size / efx->vi_stride));
 	if (!efx->max_vis) {
 		netif_err(efx, drv, efx->net_dev, "error determining max VIs\n");
 		return -EIO;
@@ -5935,6 +5966,12 @@ const struct efx_nic_type efx_hunt_a0_vf_nic_type = {
 	.supported_interrupt_modes = BIT(EFX_INT_MODE_MSIX),
 	.timer_period_max = 1 << ERF_DD_EVQ_IND_TIMER_VAL_WIDTH,
 #ifdef EFX_NOT_UPSTREAM
+	.vi_resources = {
+		.vi_base = 0,
+		.vi_shift = 0,
+		.vi_min = 0,
+		.vi_lim = 0
+	},
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	.ef10_resources = {
 		.hdr.next = ((struct efx_dl_device_info *)
@@ -6131,8 +6168,14 @@ const struct efx_nic_type efx_hunt_a0_nic_type = {
 	.copy_break = true,
 	.supported_interrupt_modes = BIT(EFX_INT_MODE_MSIX) |
 				     BIT(EFX_INT_MODE_MSI),
-    .timer_period_max = 1 << ERF_DD_EVQ_IND_TIMER_VAL_WIDTH,
+	.timer_period_max = 1 << ERF_DD_EVQ_IND_TIMER_VAL_WIDTH,
 #ifdef EFX_NOT_UPSTREAM
+	.vi_resources = {
+		.vi_base = 0,
+		.vi_shift = 0,
+		.vi_min = 0,
+		.vi_lim = 0
+	},
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	.ef10_resources = {
 		.hdr.next = ((struct efx_dl_device_info *)

@@ -151,7 +151,6 @@ sfc-$(CONFIG_SFC_MCDI_MON) += mcdi_mon.o
 sfc-$(CONFIG_SFC_PTP)	+= ptp.o
 sfc-$(CONFIG_SFC_MTD)	+= mtd.o
 sfc-$(CONFIG_SFC_VDPA) += ef100_vdpa.o ef100_vdpa_ops.o mcdi_vdpa.o
-sfc-$(CONFIG_AUXILIARY_BUS)	+= efx_auxbus.o
 sfc-$(CONFIG_DEBUG_FS) += debugfs.o
 ifndef EFX_NO_KCOMPAT
 ifneq ($(MAKECMDGOALS),export)
@@ -165,7 +164,8 @@ endif # !EFX_NO_KCOMPAT
 ifndef EFX_UPSTREAM
 ifeq ($(filter export export-xen,$(MAKECMDGOALS)),)
 ifndef EFX_FOR_UPSTREAM
-sfc-y			+= sfctool.o ef100_dump.o
+sfc-y			+= sfctool.o ef100_dump.o efx_client.o
+sfc-$(CONFIG_AUXILIARY_BUS)	+= efx_auxbus.o
 sfc-$(CONFIG_SFC_VDPA)	+= ef100_vdpa_dbg.o
 endif # !EFX_FOR_UPSTREAM
 sfc-$(CONFIG_SFC_DUMP) += dump.o
@@ -326,15 +326,15 @@ endif # EFX_NOT_EXPORTED
 
 # Export into kernel tree
 export:
-	$(EXPORT_CMD) $(KDIR) $(sfc_driverlink-y:%.o=%.c) $(sfc-y:%.o=%.c) efx_auxbus.c debugfs.c
+	$(EXPORT_CMD) $(KDIR) $(sfc_driverlink-y:%.o=%.c) $(sfc-y:%.o=%.c) debugfs.c
 	$(MAKE) -C siena $@
 
 export-resolve-kcompat:
-	$(EXPORT_CMD) -k -kk $(KDIR) $(sfc-y:%.o=%.c) efx_auxbus.c debugfs.c
+	$(EXPORT_CMD) -k -kk $(KDIR) $(sfc-y:%.o=%.c) debugfs.c
 
 # Export into a Xen kernel tree
 export-xen:
-	$(EXPORT_CMD) -k -kk --suffix=xen $(KDIR) $(sfc_driverlink-y:%.o=%.c) $(sfc-y:%.o=%.c) efx_auxbus.c debugfs.c
+	$(EXPORT_CMD) -k -kk --suffix=xen $(KDIR) $(sfc_driverlink-y:%.o=%.c) $(sfc-y:%.o=%.c) debugfs.c
 
 # Export for SRPM
 export-srpm:
