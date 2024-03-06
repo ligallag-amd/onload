@@ -263,6 +263,9 @@ struct efx_auxdev_ops {
 	struct efx_auxdev_dl_vi_resources *
 		(*dl_publish)(struct efx_auxdev_client *handle);
 	void (*dl_unpublish)(struct efx_auxdev_client *handle);
+	int (*vport_new)(struct efx_auxdev_client *handle, u16 vlan,
+			 bool vlan_restrict);
+	int (*vport_free)(struct efx_auxdev_client *handle, u16 port_id);
 #endif
 };
 

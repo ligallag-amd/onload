@@ -350,6 +350,35 @@ static void efx_auxbus_dl_unpublish(struct efx_auxdev_client *handle)
 	client->client_type->vis_allocated = false;
 }
 
+static int efx_auxbus_vport_new(struct efx_auxdev_client *handle, u16 vlan,
+				 bool vlan_restrict)
+{
+	struct efx_probe_data *pd;
+
+	if (!handle)
+		return -EINVAL;
+
+	pd = cdev_to_probe_data(handle);
+	if (!pd)
+		return -ENODEV;
+
+	return efx_vport_add(&pd->efx, vlan, vlan_restrict);
+}
+
+static int efx_auxbus_vport_free(struct efx_auxdev_client *handle, u16 port_id)
+{
+	struct efx_probe_data *pd;
+
+	if (!handle)
+		return -EINVAL;
+
+	pd = cdev_to_probe_data(handle);
+	if (!pd)
+		return -ENODEV;
+
+	return efx_vport_del(&pd->efx, port_id);
+}
+
 static const struct efx_auxdev_ops aux_devops = {
 	.open = efx_auxbus_open,
 	.close = efx_auxbus_close,
@@ -360,6 +389,8 @@ static const struct efx_auxdev_ops aux_devops = {
 	.set_param = efx_auxbus_set_param,
 	.dl_publish = efx_auxbus_dl_publish,
 	.dl_unpublish = efx_auxbus_dl_unpublish,
+	.vport_new = efx_auxbus_vport_new,
+	.vport_free = efx_auxbus_vport_free,
 };
 
 int efx_auxbus_send_events(struct efx_probe_data *pd,
