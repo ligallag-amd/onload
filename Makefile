@@ -240,7 +240,8 @@ scripts = $(addprefix $(KBUILDTOP)/driver/linux/,$(notdir $(wildcard src/driver/
 
 kernel: modules $(scripts)
 	@mkdir -p $(KBUILDTOP)/driver/linux
-	$(Q)ln -rsf $(wildcard $(patsubst %,$(KBUILDTOP)/%/*.ko,$(DRIVER_SUBDIRS))) $(KBUILDTOP)/driver/linux
+	$(Q)rm -f $(KBUILDTOP)/driver/linux/*.ko
+	$(Q)cp $(wildcard $(patsubst %,$(KBUILDTOP)/%/*.ko,$(DRIVER_SUBDIRS))) $(KBUILDTOP)/driver/linux
 
 $(scripts):
 	@mkdir -p $(KBUILDTOP)/driver/linux
