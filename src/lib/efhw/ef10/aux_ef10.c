@@ -207,19 +207,14 @@ efrm_get_rediscovered_nic(struct pci_dev* dev,
 
 static int init_resource_info(struct efx_auxdev *edev,
                               struct efx_auxdev_client *client,
+                              struct efx_auxdev_dl_vi_resources *vi_res,
                               struct vi_resource_dimensions *rd,
                               struct pci_dev **pci_dev,
                               unsigned int *tq)
 {
-  struct efx_auxdev_dl_vi_resources *vi_res;
   union efx_auxiliary_param_value val;
   int rc;
 
-  rtnl_lock();
-  vi_res = edev->ops->dl_publish(client);
-  rtnl_unlock();
-  if( IS_ERR(vi_res) )
-    return PTR_ERR(vi_res);
   *pci_dev = vi_res->pci_dev;
   /* FIXME SCJ pci_dev handling */
   rd->pci_dev = *pci_dev;
@@ -282,6 +277,7 @@ static int ef10_probe(struct auxiliary_device *auxdev,
                       const struct auxiliary_device_id *id)
 {
   struct efx_auxdev *edev = to_efx_auxdev(auxdev);
+  struct efx_auxdev_dl_vi_resources *vi_res;
   struct vi_resource_dimensions res_dim;
   struct efx_auxdev_client *client;
   union efx_auxiliary_param_value val;
@@ -302,21 +298,30 @@ static int ef10_probe(struct auxiliary_device *auxdev,
     goto fail1;
   }
 
+  rtnl_lock();
+  vi_res = edev->ops->dl_publish(client);
+  rtnl_unlock();
+  if( IS_ERR(vi_res) ) {
+    rc = PTR_ERR(vi_res);
+    goto fail2;
+  }
+
   rc = edev->ops->get_param(client, EFX_NETDEV, &val);
   if( rc < 0 )
-    goto fail2;
+    goto fail3;
   net_dev = val.net_dev;
 
-  rc = init_resource_info(edev, client, &res_dim, &pci_dev, &timer_quantum_ns);
+  rc = init_resource_info(edev, client, vi_res, &res_dim, &pci_dev,
+                          &timer_quantum_ns);
   if( rc < 0 )
-    goto fail2;
+    goto fail3;
 
   rc = efhw_sfc_device_type_init(&dev_type, pci_dev);
   if( rc < 0 ) {
     EFRM_ERR("%s: efhw_device_type_init failed %04x:%04x rc %d",
     __func__, (unsigned) pci_dev->vendor,
     (unsigned) pci_dev->device, rc);
-    goto fail2;
+    goto fail3;
   }
 
   EFRM_NOTICE("%s pci_dev=%04x:%04x(%d) type=%d:%c%d ifindex=%d",
@@ -335,7 +340,7 @@ static int ef10_probe(struct auxiliary_device *auxdev,
                     timer_quantum_ns);
   if( rc < 0 ) {
     rtnl_unlock();
-    goto fail2;
+    goto fail3;
   }
 
 #if 0
@@ -354,15 +359,17 @@ static int ef10_probe(struct auxiliary_device *auxdev,
   /* FIXME SCJ check this failure path */
   if( rc < 0 ) {
     rtnl_unlock();
-    goto fail3;
+    goto fail4;
   }
 
   efrm_notify_nic_probe(nic, net_dev);
   rtnl_unlock();
   return 0;
 
- fail3:
+ fail4:
   efrm_nic_unplug(nic);
+ fail3:
+  edev->ops->dl_unpublish(client);
  fail2:
   edev->ops->close(client);
  fail1:
@@ -414,6 +421,7 @@ void ef10_remove(struct auxiliary_device *auxdev)
   efrm_nic_reset_suspend(nic);
   ci_atomic32_or(&nic->resetting, NIC_RESETTING_FLAG_UNPLUGGED);
 
+  edev->ops->dl_unpublish(client);
   edev->ops->close(client);
 }
 
