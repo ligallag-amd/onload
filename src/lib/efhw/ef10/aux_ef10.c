@@ -298,9 +298,7 @@ static int ef10_probe(struct auxiliary_device *auxdev,
     goto fail1;
   }
 
-  rtnl_lock();
   vi_res = edev->ops->dl_publish(client);
-  rtnl_unlock();
   if( IS_ERR(vi_res) ) {
     rc = PTR_ERR(vi_res);
     goto fail2;
@@ -333,13 +331,11 @@ static int ef10_probe(struct auxiliary_device *auxdev,
 
   lnic = efrm_get_rediscovered_nic(pci_dev, &dev_type, &res_dim);
 
-  rtnl_lock();
   /* FIXME SCJ check probe flags - do we need this */
   rc = efrm_nic_add(client, &auxdev->dev, &dev_type, 0,
                     (/*no const*/ struct net_device *)net_dev, &lnic, &res_dim,
                     timer_quantum_ns);
   if( rc < 0 ) {
-    rtnl_unlock();
     goto fail3;
   }
 
@@ -358,12 +354,10 @@ static int ef10_probe(struct auxiliary_device *auxdev,
   rc = edev->ops->set_param(client, EFX_DRIVER_DATA, &val);
   /* FIXME SCJ check this failure path */
   if( rc < 0 ) {
-    rtnl_unlock();
     goto fail4;
   }
 
   efrm_notify_nic_probe(nic, net_dev);
-  rtnl_unlock();
   return 0;
 
  fail4:

@@ -47,6 +47,7 @@
 
 #include <ci/efhw/ef10.h>
 #include <ci/efhw/mc_driver_pcol.h>
+#include <ci/driver/ci_ef10.h>
 #include "ef10_mcdi.h"
 #include "ef10_ef100.h"
 
@@ -2458,36 +2459,32 @@ int
 ef10_ef100_vport_alloc(struct efhw_nic *nic, u16 vlan_id,
 		       u16 *vport_handle_out)
 {
-	int rc;
-	struct efx_dl_device *efx_dev = efhw_nic_acquire_dl_device(nic);
+  int rc;
+  struct device *dev;
+  struct efx_auxdev *auxdev;
+  struct efx_auxdev_client *cli;
 
-	/* If [efx_dev] is NULL, the hardware is morally absent. */
-	if (efx_dev == NULL)
-		return -ENETDOWN;
-
-	rc = efx_dl_vport_new(efx_dev, vlan_id, 0);
-	if( rc >= 0 ) {
-		*vport_handle_out = rc;
-		rc = 0;
-	}
-
-	efhw_nic_release_dl_device(nic, efx_dev);
-	return rc;
+  AUX_PRE(dev, auxdev, cli, nic, rc);
+  rc = auxdev->ops->vport_new(cli, vlan_id, 0);
+  AUX_POST(dev, auxdev, cli, nic, rc);
+  if( rc >= 0 ) {
+    *vport_handle_out = rc;
+    rc = 0;
+  }
+  return rc;
 }
 
 int
 ef10_ef100_vport_free(struct efhw_nic *nic, u16 vport_handle)
 {
-	int rc;
-	struct efx_dl_device *efx_dev = efhw_nic_acquire_dl_device(nic);
+  int rc;
+  struct device *dev;
+  struct efx_auxdev *auxdev;
+  struct efx_auxdev_client *cli;
 
-	/* If [efx_dev] is NULL, the hardware is morally absent. */
-	if (efx_dev == NULL)
-		return -ENETDOWN;
-
-	rc = efx_dl_vport_free(efx_dev, vport_handle);
-
-	efhw_nic_release_dl_device(nic, efx_dev);
+  AUX_PRE(dev, auxdev, cli, nic, rc);
+  rc = auxdev->ops->vport_free(cli, vport_handle);
+  AUX_POST(dev, auxdev, cli, nic, rc);
 	return rc;
 }
  
