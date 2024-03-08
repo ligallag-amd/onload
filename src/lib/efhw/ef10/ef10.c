@@ -2604,7 +2604,7 @@ struct efhw_func_ops ef10aux_char_functional_units = {
 	.filter_remove = ef10_filter_remove,
 	.filter_redirect = ef10_filter_redirect,
 	.filter_query = ef10_filter_query,
-#if 0
+#if 1
 	.multicast_block = ef10_ef100_multicast_block,
 	.unicast_block = ef10_ef100_unicast_block,
 	.vport_alloc = ef10_ef100_vport_alloc,

@@ -2098,6 +2098,7 @@ EXPORT_SYMBOL(efrm_rss_context_free);
 int efrm_vport_alloc(struct efrm_client* client, u16 vlan_id, u16 *vport_handle_out)
 {
 	struct efhw_nic *efhw_nic = efrm_client_get_nic(client);
+	printk("Attempting to allocate a vport: here: %p\n", efhw_nic->efhw_func->vport_alloc);
 	return efhw_nic_vport_alloc(efhw_nic, vlan_id,
 				    vport_handle_out);
 }
