@@ -12,6 +12,14 @@
 #define EFX_ONLOAD_DEVNAME	"onload"
 #endif
 
+#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_AUXILIARY_BUS)
+#include <linux/auxiliary_bus.h>
+#else
+struct auxiliary_device {
+	int	dummy;
+};
+#endif
+
 /* Driver API */
 /**
  * enum efx_auxdev_event_type - Events a driver can get.
@@ -53,8 +61,8 @@ struct efx_auxdev;
  * @ts_subnano_bit: partial time stamp in sub nano seconds.
  * @unsol_credit_seq_mask: Width of sequence number in EVQ_UNSOL_CREDIT_GRANT
  *	register.
- * @l4_csum_proto: L4 csm feilds.
- * @max_runt: MAx length of frame data when LEN_ERR indicates runt.
+ * @l4_csum_proto: L4 csum fields.
+ * @max_runt: Max length of frame data when LEN_ERR indicates runt.
  * @evq_sizes: Event queue sizes.
  * @num_filter: Number of filters.
  */
@@ -90,10 +98,7 @@ struct efx_design_params {
  * @net_dev: Optional, set if the client's parent has a network device.
  * @channels: All channels allocated to this client. Each entry is a pointer to
  *	a struct efx_client_channel.
- * @membase_addr: Kernel virtual address of the start of the memory BAR.
  * @design_params: Hardware design parameters.
- * @use_msi: %true if the hardware uses an MSI interrupt. Only set if MSI-X
- *	is not supported.
  */
 struct efx_auxdev_client {
 	struct efx_auxdev *auxdev;
@@ -105,9 +110,7 @@ struct efx_auxdev_client {
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XARRAY)
 	struct xarray channels;
 #endif
-	resource_size_t *membase_addr;
 	struct efx_design_params design_params;
-	bool use_msi;
 };
 
 /* Device API */
@@ -151,8 +154,6 @@ struct efx_filter_spec;
  * @rss_channel_count: Number of receive channels used for RSS.
  * @vi_shift: Shift value for absolute VI number computation.
  * @vi_stride: size in bytes of a single VI.
- * @mem_bar: PCIe memory BAR index.
- * @pci_dev: The PCI device.
  */
 struct efx_auxdev_dl_vi_resources {
 	unsigned int vi_base;
@@ -161,8 +162,6 @@ struct efx_auxdev_dl_vi_resources {
 	unsigned int rss_channel_count;
 	unsigned int vi_shift;
 	unsigned int vi_stride;
-	unsigned int mem_bar;
-	struct pci_dev *pci_dev;
 };
 
 /**
@@ -174,6 +173,8 @@ struct efx_auxdev_dl_vi_resources {
  * @EFX_MEMBASE: Kernel virtual address of the start of the memory BAR.
  *	Get only.
  *	Returned through @membase_addr.
+ * @EFX_MEMBASE: PCIe memory BAR index. Get only.
+ *	Returned through @value to be interpreted as unsigned.
  * @EFX_USE_MSI: Hardware only has an MSI interrupt, no MSI-X.
  *	Get only.
  *	Returned through @b.
@@ -184,7 +185,10 @@ struct efx_auxdev_dl_vi_resources {
  *	Returned through @value.
  * @EFX_DESIGN_PARAM: Hardware design parameters. Get only.
  *	Returned through @design_params.
- * @EFX_PCI_DEVICE: The underlying PCI device, as `pci_dev->device`. Get only.
+ * @EFX_PCI_DEV: The PCI device, as `struct pci_dev`. Get only.
+ *	Value passed via @pci_dev.
+ * @EFX_PCI_DEV_DEVICE: The underlying PCI device, as `pci_dev->device`.
+ *	Get only.
  *	Value passed via @value.
  * @EFX_DEVICE_REVISION: Device revision. Get only. Value passed via @value.
  * @EFX_TIMER_QUANTUM_NS: Timer quantum (nominal period between timer ticks)
@@ -200,11 +204,13 @@ struct efx_auxdev_dl_vi_resources {
 enum efx_auxiliary_param {
 	EFX_NETDEV,
 	EFX_MEMBASE,
+	EFX_MEMBAR,
 	EFX_USE_MSI,
 	EFX_CHANNELS,
 	EFX_RXFH_DEFAULT_FLAGS,
 	EFX_DESIGN_PARAM,
-	EFX_PCI_DEVICE,
+	EFX_PCI_DEV,
+	EFX_PCI_DEV_DEVICE,
 	EFX_DEVICE_REVISION,
 	EFX_TIMER_QUANTUM_NS,
 	EFX_DRIVER_DATA,
@@ -223,6 +229,7 @@ union efx_auxiliary_param_value {
 	bool b;
 	struct efx_design_params *design_params;
 	void *driver_data;
+	struct pci_dev *pci_dev;
 };
 #endif
 
@@ -249,19 +256,31 @@ struct efx_auxdev_ops {
 		      struct efx_auxdev_rpc *rpc);
 
 #ifdef EFX_NOT_UPSTREAM
+	/* @filter_insert: Insert an RX filter. */
 	int (*filter_insert)(struct efx_auxdev_client *handle,
 			     const struct efx_filter_spec *spec,
 			     bool replace_equal);
+	/* @filter_remove: Remove an RX filter. */
 	int (*filter_remove)(struct efx_auxdev_client *handle,
 			     int filter_id);
+	/* @get_param: Obtain the setting for an @efx_auxiliary_param. */
 	int (*get_param)(struct efx_auxdev_client *handle,
 			 enum efx_auxiliary_param p,
 			 union efx_auxiliary_param_value *arg);
+	/* @set_param: Set an @efx_auxiliary_param. */
 	int (*set_param)(struct efx_auxdev_client *handle,
 			 enum efx_auxiliary_param p,
 			 union efx_auxiliary_param_value *arg);
+	/* @dl_publish: Do driverlink-compatible VI allocation. Also brings up
+	 *	the netdev interface. Each call to this function must be paired
+	 *	with a corresponding @dl_unpublish call, and this function may
+	 *	not be called again before @dl_unpublish.
+	 */
 	struct efx_auxdev_dl_vi_resources *
 		(*dl_publish)(struct efx_auxdev_client *handle);
+	/* @dl_unpublish: Free driverlink-compatible VIs. Also brings down the
+	 *	netdev interface.
+	 */
 	void (*dl_unpublish)(struct efx_auxdev_client *handle);
 	int (*vport_new)(struct efx_auxdev_client *handle, u16 vlan,
 			 bool vlan_restrict);

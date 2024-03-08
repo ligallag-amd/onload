@@ -343,7 +343,7 @@ unsigned int efx_ticks_to_usecs(struct efx_nic *efx, unsigned int ticks);
 int efx_init_irq_moderation(struct efx_nic *efx, unsigned int tx_usecs,
 			    unsigned int rx_usecs, bool rx_adaptive,
 			    bool rx_may_override_tx);
-void efx_get_irq_moderation(struct efx_nic *efx, unsigned int *tx_usecs,
+int efx_get_irq_moderation(struct efx_nic *efx, unsigned int *tx_usecs,
 			    unsigned int *rx_usecs, bool *rx_adaptive);
 
 /* Update the generic software stats in the passed stats array */

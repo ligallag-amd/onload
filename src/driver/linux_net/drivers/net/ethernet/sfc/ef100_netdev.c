@@ -382,23 +382,17 @@ int ef100_net_alloc(struct efx_nic *efx)
 
 #ifdef EFX_NOT_UPSTREAM
 	efx->vi_resources.vi_lim = allocated_vis;
-	efx->vi_resources.timer_quantum_ns = efx->timer_quantum_ns;
 	efx->vi_resources.rss_channel_count = efx->rss_spread;
-	efx->vi_resources.rx_channel_count = efx_rx_channels(efx);
 	efx->vi_resources.vi_stride = efx->vi_stride;
-	efx->vi_resources.mem_bar = efx->mem_bar;
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	/* Register with driverlink layer */
-	efx->ef10_resources.vi_lim = efx->vi_resources.vi_lim;
-	efx->ef10_resources.timer_quantum_ns =
-		efx->vi_resources.timer_quantum_ns;
-	efx->ef10_resources.rss_channel_count =
-		efx->vi_resources.rss_channel_count;
-	efx->ef10_resources.rx_channel_count =
-		efx->vi_resources.rx_channel_count;
+	efx->ef10_resources.vi_lim = allocated_vis;
+	efx->ef10_resources.timer_quantum_ns = efx->timer_quantum_ns;
+	efx->ef10_resources.rss_channel_count = efx->rss_spread;
+	efx->ef10_resources.rx_channel_count = efx_rx_channels(efx);
 	efx->ef10_resources.flags = EFX_DL_EF10_USE_MSI;
-	efx->ef10_resources.vi_stride = efx->vi_resources.vi_stride;
-	efx->ef10_resources.mem_bar = efx->vi_resources.mem_bar;
+	efx->ef10_resources.vi_stride = efx->vi_stride;
+	efx->ef10_resources.mem_bar = efx->mem_bar;
 
 	if (efx->irq_resources)
 		efx->irq_resources->int_prime =
@@ -924,7 +918,6 @@ int ef100_probe_netdev(struct efx_probe_data *probe_data)
 				       ESE_EF100_DP_GZ_TSO_MAX_HDR_NUM_SEGS_DEFAULT);
 #endif
 #ifdef EFX_NOT_UPSTREAM
-	efx->vi_resources = efx->type->vi_resources;
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	efx_dl_probe(efx);
 	efx->ef10_resources = efx->type->ef10_resources;

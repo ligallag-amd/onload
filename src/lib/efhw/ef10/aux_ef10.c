@@ -215,7 +215,10 @@ static int init_resource_info(struct efx_auxdev *edev,
   union efx_auxiliary_param_value val;
   int rc;
 
-  *pci_dev = vi_res->pci_dev;
+  rc = edev->ops->get_param(client, EFX_PCI_DEV, &val);
+  if( rc < 0 )
+    return rc;
+  *pci_dev = val.pci_dev;
   /* FIXME SCJ pci_dev handling */
   rd->pci_dev = *pci_dev;
 
@@ -236,7 +239,11 @@ static int init_resource_info(struct efx_auxdev *edev,
   rd->vi_base = vi_res->vi_base;
   rd->vi_shift = vi_res->vi_shift;
   rd->vi_stride = vi_res->vi_stride;
-  rd->mem_bar = vi_res->mem_bar;
+
+  rc = edev->ops->get_param(client, EFX_MEMBAR, &val);
+  if( rc < 0 )
+    return rc;
+  rd->mem_bar = val.value;
 
   /* assume all the register STEPS are identical */
   EFRM_BUILD_ASSERT(ER_DZ_EVQ_RPTR_REG_STEP == ER_DZ_EVQ_TMR_REG_STEP);

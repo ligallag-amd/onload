@@ -282,11 +282,14 @@ int efx_init_irq_moderation(struct efx_nic *efx, unsigned int tx_usecs,
 	return 0;
 }
 
-void efx_get_irq_moderation(struct efx_nic *efx, unsigned int *tx_usecs,
+int efx_get_irq_moderation(struct efx_nic *efx, unsigned int *tx_usecs,
 			    unsigned int *rx_usecs, bool *rx_adaptive)
 {
 	*rx_adaptive = efx->irq_rx_adaptive;
 	*rx_usecs = efx->irq_rx_moderation_us;
+
+	if (efx->state != STATE_NET_UP)
+		return -ENETDOWN;
 
 	/* If channels are shared between RX and TX, so is IRQ
 	 * moderation.  Otherwise, IRQ moderation is the same for all
@@ -298,8 +301,14 @@ void efx_get_irq_moderation(struct efx_nic *efx, unsigned int *tx_usecs,
 		struct efx_channel *tx_channel;
 
 		tx_channel = efx_get_channel(efx, efx->tx_channel_offset);
+		if (!tx_channel) {
+			return -ENOENT;
+		}
+
 		*tx_usecs = tx_channel->irq_moderation_us;
 	}
+
+	return 0;
 }
 
 /**************************************************************************
@@ -1073,7 +1082,6 @@ int efx_pci_probe_post_io(struct efx_nic *efx,
 	pci_dbg(efx->pci_dev, "creating NIC\n");
 
 #ifdef EFX_NOT_UPSTREAM
-	efx->vi_resources = efx->type->vi_resources;
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	/* Initialise NIC resource information */
 	efx->ef10_resources = efx->type->ef10_resources;

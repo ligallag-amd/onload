@@ -11,13 +11,6 @@
 #ifndef EFX_CLIENT_H
 #define EFX_CLIENT_H
 
-#if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_AUXILIARY_BUS)
-#include <linux/auxiliary_bus.h>
-#else
-struct auxiliary_device {
-	int	dummy;
-};
-#endif
 #include <linux/sfc/efx_auxbus.h>
 
 struct efx_probe_data;
@@ -41,6 +34,9 @@ struct efx_client_type_data {
 	struct efx_probe_data *pd;
 	void *type_data;
 #ifdef EFX_NOT_UPSTREAM
+	/* @vis_allocated: Flag denoting whether VIs have been allocated using
+	 *  @efx_net_alloc, which can only be allowed to happen once.
+	 */
 	bool vis_allocated;
 #endif
 #if !defined(EFX_USE_KCOMPAT) || defined (EFX_HAVE_XARRAY)
@@ -64,9 +60,6 @@ struct efx_client {
 	struct efx_client_type_data *client_type;
 #ifdef CONFIG_AUXILIARY_BUS
 	struct efx_auxdev_client auxiliary_info;
-#ifdef EFX_NOT_UPSTREAM
-	struct efx_auxdev_dl_vi_resources vi_resources;
-#endif
 #endif
 };
 

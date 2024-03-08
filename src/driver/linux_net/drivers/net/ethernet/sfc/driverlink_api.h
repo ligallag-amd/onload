@@ -25,7 +25,6 @@
 	__struct_group(/* no tag */, NAME, /* no attrs */, MEMBERS)
 #endif
 
-#include "mcdi_filters.h"
 #include "filter.h"
 
 /* Forward declarations */

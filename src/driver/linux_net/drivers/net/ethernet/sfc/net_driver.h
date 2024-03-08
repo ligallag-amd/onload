@@ -81,13 +81,13 @@
 #include "bitfield.h"
 #ifdef EFX_NOT_UPSTREAM
 #include "sfctool.h" /* Provides missing 'struct ethtool_*' declarations */
+#include <linux/sfc/efx_auxbus.h>
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 #define EFX_DRIVERLINK_API_VERSION_MINOR EFX_DRIVERLINK_API_VERSION_MINOR_MAX
 #include "driverlink_api.h" /* Indirectly includes filter.h */
 #endif
 #endif
 #include "filter.h"
-#include "mcdi_filters.h"
 
 #include "workarounds.h"
 
@@ -98,7 +98,7 @@
  **************************************************************************/
 
 #ifdef EFX_NOT_UPSTREAM
-#define EFX_DRIVER_VERSION	"5.4.0.1003"
+#define EFX_DRIVER_VERSION	"5.4.0.1004"
 #endif
 
 #ifdef DEBUG
@@ -1390,36 +1390,6 @@ enum efx_buf_alloc_mode {
 
 struct efx_mae;
 
-#ifdef EFX_NOT_UPSTREAM
-/**
- * struct efx_vi_resources - VI resource information
- *
- * @vi_base: Absolute index of first VI in this function.  This may change
- *	after a reset.  Clients that cache this value will need to update
- *	the cached value in their reset_resume() function.
- * @vi_min: Relative index of first available VI
- * @vi_lim: Relative index of last available VI + 1
- * @timer_quantum_ns: Timer quantum (nominal period between timer ticks)
- *      for wakeup timers, in nanoseconds.
- * @rss_channel_count: Number of receive channels used for RSS.
- * @rx_channel_count: Number of receive channels available for use.
- * @vi_shift: Shift value for absolute VI number computation.
- * @vi_stride: size in bytes of a single VI.
- * @mem_bar: PCIe memory BAR index.
- */
-struct efx_vi_resources {
-	unsigned int vi_base;
-	unsigned int vi_min;
-	unsigned int vi_lim;
-	unsigned int timer_quantum_ns;
-	unsigned int rss_channel_count;
-	unsigned int rx_channel_count;
-	unsigned int vi_shift;
-	unsigned int vi_stride;
-	unsigned int mem_bar;
-};
-#endif
-
 /**
  * struct efx_nic - an Efx NIC
  * @name: Device name (net device name or bus id before net device registered)
@@ -1687,7 +1657,7 @@ struct efx_nic {
 	unsigned int sram_lim_qw;
 #ifdef EFX_NOT_UPSTREAM
 	/** @vi_resources: general VI resource values */
-	struct efx_vi_resources vi_resources;
+	struct efx_auxdev_dl_vi_resources vi_resources;
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	/** @n_dl_irqs: Number of IRQs to reserve for driverlink */
 	int n_dl_irqs;
@@ -2522,8 +2492,6 @@ struct efx_nic_type {
 	unsigned int supported_interrupt_modes;
 	unsigned int timer_period_max;
 #ifdef EFX_NOT_UPSTREAM
-	/** @vi_resources: general VI resource values */
-	struct efx_vi_resources vi_resources;
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	/**
 	 * @ef10_resources: Resources to be shared via driverlink (copied

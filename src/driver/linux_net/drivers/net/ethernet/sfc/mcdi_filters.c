@@ -10,7 +10,6 @@
  */
 
 #include "mcdi_filters.h"
-#include "net_driver.h"
 #include "debugfs.h"
 #include "mcdi_pcol.h"
 #include "mcdi.h"

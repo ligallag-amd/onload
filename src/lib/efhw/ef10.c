@@ -2463,6 +2463,7 @@ ef10_ef100_vport_alloc(struct efhw_nic *nic, u16 vlan_id,
   struct device *dev;
   struct efx_auxdev *auxdev;
   struct efx_auxdev_client *cli;
+	printk("Weaallocin fam\n");
 
   AUX_PRE(dev, auxdev, cli, nic, rc);
   rc = auxdev->ops->vport_new(cli, vlan_id, 0);
@@ -2481,6 +2482,7 @@ ef10_ef100_vport_free(struct efhw_nic *nic, u16 vport_handle)
   struct device *dev;
   struct efx_auxdev *auxdev;
   struct efx_auxdev_client *cli;
+	printk("Wedallocin fam\n");
 
   AUX_PRE(dev, auxdev, cli, nic, rc);
   rc = auxdev->ops->vport_free(cli, vport_handle);

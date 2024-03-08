@@ -70,6 +70,8 @@ struct efx_auxdev_client *efx_auxbus_open(struct auxiliary_device *auxdev,
 	return cdev;
 }
 
+static void efx_auxbus_dl_unpublish(struct efx_auxdev_client *handle);
+
 static void efx_auxbus_close(struct efx_auxdev_client *cdev)
 {
 	struct efx_client *client;
@@ -81,6 +83,17 @@ static void efx_auxbus_close(struct efx_auxdev_client *cdev)
 	cdev->net_dev = NULL;
 	cdev->client_id = 0;
 	client = container_of(cdev, struct efx_client, auxiliary_info);
+	/* If @dl_publish has been called, @dl_unpublish must have been called
+	 * before we try and close the auxdev client.
+	 */
+	if (client->client_type->vis_allocated) {
+		struct efx_probe_data *pd = cdev_to_probe_data(cdev);
+
+		netif_warn(&pd->efx, drv, pd->efx.net_dev,
+			   "Close called on auxdev client with published VIs, this may crash the kernel; attempting cleanup.");
+		WARN_ON_ONCE(1);
+		efx_auxbus_dl_unpublish(cdev);
+	}
 	efx_client_del(client);
 }
 
@@ -158,7 +171,9 @@ static int efx_auxbus_filter_set_block(struct efx_nic *efx,
 		if (rc == 0)
 			efx->block_kernel_count[type]++;
 	} else {
-		if (--efx->block_kernel_count[type] == 0)
+		if (efx->block_kernel_count[type] == 0)
+			rc = -EALREADY;
+		else if (--efx->block_kernel_count[type] == 0)
 			efx->type->filter_unblock_kernel(efx, type);
 	}
 	mutex_unlock(&efx->block_kernel_mutex);
@@ -188,10 +203,14 @@ static int efx_auxbus_get_param(struct efx_auxdev_client *handle,
 		arg->net_dev = handle->net_dev;
 		break;
 	case EFX_MEMBASE:
-		arg->membase_addr = handle->membase_addr;
+		arg->membase_addr = efx->membase;
+		break;
+	case EFX_MEMBAR:
+		arg->value = efx->type->mem_bar(efx);
 		break;
 	case EFX_USE_MSI:
-		arg->b = handle->use_msi;
+		arg->b = efx->pci_dev->msi_enabled &&
+			 !efx->pci_dev->msix_enabled;
 		break;
 	case EFX_CHANNELS:
 #if !defined(EFX_USE_KCOMPAT) || defined(EFX_HAVE_XARRAY)
@@ -201,12 +220,15 @@ static int efx_auxbus_get_param(struct efx_auxdev_client *handle,
 #endif
 		break;
 	case EFX_RXFH_DEFAULT_FLAGS:
-		arg->value = efx_mcdi_get_default_rss_flags(efx);
+		arg->value = efx->type->rx_get_default_rss_flags(efx);
 		break;
 	case EFX_DESIGN_PARAM:
 		arg->design_params = &handle->design_params;
 		break;
-	case EFX_PCI_DEVICE:
+	case EFX_PCI_DEV:
+		arg->pci_dev = efx->pci_dev;
+		break;
+	case EFX_PCI_DEV_DEVICE:
 		arg->value = efx->pci_dev->device;
 		break;
 	case EFX_DEVICE_REVISION:
@@ -257,11 +279,13 @@ static int efx_auxbus_set_param(struct efx_auxdev_client *handle,
 	switch (p) {
 	case EFX_NETDEV:
 	case EFX_MEMBASE:
+	case EFX_MEMBAR:
 	case EFX_USE_MSI:
 	case EFX_CHANNELS:
 	case EFX_RXFH_DEFAULT_FLAGS:
 	case EFX_DESIGN_PARAM:
-	case EFX_PCI_DEVICE:
+	case EFX_PCI_DEV:
+	case EFX_PCI_DEV_DEVICE:
 	case EFX_DEVICE_REVISION:
 	case EFX_TIMER_QUANTUM_NS:
 		/* These parameters are _get_ only! */
@@ -291,6 +315,7 @@ static int efx_auxbus_set_param(struct efx_auxdev_client *handle,
 static struct efx_auxdev_dl_vi_resources *
 efx_auxbus_dl_publish(struct efx_auxdev_client *handle)
 {
+	struct efx_auxdev_dl_vi_resources *result;
 	struct efx_probe_data *pd;
 	struct efx_client *client;
 	int rc;
@@ -299,9 +324,6 @@ efx_auxbus_dl_publish(struct efx_auxdev_client *handle)
 		return ERR_PTR(-EINVAL);
 
 	client = container_of(handle, struct efx_client, auxiliary_info);
-	if (!client)
-		return ERR_PTR(-ENODEV);
-
 	pd = cdev_to_probe_data(handle);
 	if (!pd)
 		return ERR_PTR(-ENODEV);
@@ -309,25 +331,19 @@ efx_auxbus_dl_publish(struct efx_auxdev_client *handle)
 	if (client->client_type->vis_allocated)
 		return ERR_PTR(-EALREADY);
 
+	/* Both efx_net_alloc and efx_net_dealloc require the RTNL lock. */
+	rtnl_lock();
 	rc = efx_net_alloc(&pd->efx);
 	if (rc) {
 		efx_net_dealloc(&pd->efx);
-		return ERR_PTR(rc);
+		result = ERR_PTR(rc);
+	} else {
+		client->client_type->vis_allocated = true;
+		result = &pd->efx.vi_resources;
 	}
+	rtnl_unlock();
 
-	client->client_type->vis_allocated = true;
-	client->vi_resources = (struct efx_auxdev_dl_vi_resources) {
-		.vi_base = pd->efx.vi_resources.vi_base,
-		.vi_min = pd->efx.vi_resources.vi_min,
-		.vi_lim = pd->efx.vi_resources.vi_lim,
-		.rss_channel_count = pd->efx.vi_resources.rss_channel_count,
-		.vi_shift = pd->efx.vi_resources.vi_shift,
-		.vi_stride = pd->efx.vi_resources.vi_stride,
-		.mem_bar = pd->efx.vi_resources.mem_bar,
-		.pci_dev = pd->efx.pci_dev
-	};
-
-	return &client->vi_resources;
+	return result;
 }
 
 static void efx_auxbus_dl_unpublish(struct efx_auxdev_client *handle)
@@ -339,14 +355,17 @@ static void efx_auxbus_dl_unpublish(struct efx_auxdev_client *handle)
 		return;
 
 	client = container_of(handle, struct efx_client, auxiliary_info);
-	if (!client)
-		return;
-
 	pd = cdev_to_probe_data(handle);
 	if (!pd)
 		return;
 
+	if (!client->client_type->vis_allocated)
+		return;
+
+	/* efx_net_dealloc requires the rtnl lock. */
+	rtnl_lock();
 	efx_net_dealloc(&pd->efx);
+	rtnl_unlock();
 	client->client_type->vis_allocated = false;
 }
 
@@ -361,6 +380,7 @@ static int efx_auxbus_vport_new(struct efx_auxdev_client *handle, u16 vlan,
 	pd = cdev_to_probe_data(handle);
 	if (!pd)
 		return -ENODEV;
+	printk("alloced: %d\n", vlan);
 
 	return efx_vport_add(&pd->efx, vlan, vlan_restrict);
 }
@@ -376,6 +396,7 @@ static int efx_auxbus_vport_free(struct efx_auxdev_client *handle, u16 port_id)
 	if (!pd)
 		return -ENODEV;
 
+	printk("freeing: %d\n", port_id);
 	return efx_vport_del(&pd->efx, port_id);
 }
 

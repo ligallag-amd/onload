@@ -664,9 +664,11 @@ int main(int argc, char* argv[])
 
   /* Open driver and allocate a VI. */
   TRY(ef_driver_open(&res->dh));
-  if( cfg_vport )
+  if( cfg_vport ){
+    printf("allocing with vport\n");
     TRY(ef_pd_alloc_with_vport(&res->pd, res->dh, interface,
                                pd_flags, cfg_vlan_id));
+  }
   else
     TRY(ef_pd_alloc_by_name(&res->pd, res->dh, interface, pd_flags));
 

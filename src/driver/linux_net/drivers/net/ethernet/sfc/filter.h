@@ -21,17 +21,6 @@
 #endif
 #include <asm/byteorder.h>
 
-#if !defined(struct_group)
-/* Standalone KCOMPAT */
-#define __struct_group(TAG, NAME, ATTRS, MEMBERS...) \
-	union { \
-		struct { MEMBERS } ATTRS; \
-		struct TAG { MEMBERS } ATTRS NAME; \
-	}
-#define struct_group(NAME, MEMBERS...)	\
-	__struct_group(/* no tag */, NAME, /* no attrs */, MEMBERS)
-#endif
-
 #if !defined(EFX_USE_KCOMPAT) && defined(EFX_NOT_UPSTREAM) && defined(EFX_NEED_ETHER_ADDR_COPY)
 /* Standalone KCOMPAT for driverlink headers */
 static inline void efx_ether_addr_copy(u8 *dst, const u8 *src)
@@ -44,6 +33,20 @@ static inline void efx_ether_addr_copy(u8 *dst, const u8 *src)
 	a[2] = b[2];
 }
 #define ether_addr_copy efx_ether_addr_copy
+#endif
+
+#ifdef EFX_NOT_UPSTREAM
+/**
+ * enum efx_filter_block_kernel_type - filter types
+ * @EFX_FILTER_BLOCK_KERNEL_UCAST: Unicast
+ * @EFX_FILTER_BLOCK_KERNEL_MCAST: Multicast
+ * @EFX_FILTER_BLOCK_KERNEL_MAX: Limit of enum values
+ */
+enum efx_filter_block_kernel_type {
+	EFX_FILTER_BLOCK_KERNEL_UCAST = 0,
+	EFX_FILTER_BLOCK_KERNEL_MCAST,
+	EFX_FILTER_BLOCK_KERNEL_MAX,
+};
 #endif
 
 /**

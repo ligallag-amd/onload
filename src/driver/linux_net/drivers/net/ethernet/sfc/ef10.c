@@ -990,10 +990,10 @@ static void efx_ef10_free_resources(struct efx_nic *efx)
 static int efx_ef10_dimension_resources(struct efx_nic *efx)
 {
 #ifdef EFX_NOT_UPSTREAM
+	struct efx_auxdev_dl_vi_resources *vi_res = &efx->vi_resources;
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	struct efx_dl_ef10_resources *ef10_res = &efx->ef10_resources;
 #endif
-	struct efx_vi_resources *vi_res = &efx->vi_resources;
 #endif
 	struct efx_ef10_nic_data *nic_data = efx->nic_data;
 	unsigned int uc_mem_map_size, wc_mem_map_size;
@@ -1204,20 +1204,17 @@ static int efx_ef10_dimension_resources(struct efx_nic *efx)
 	vi_res->vi_min = DIV_ROUND_UP(uc_mem_map_size + wc_mem_map_size,
 				      efx->vi_stride);
 	vi_res->vi_lim = nic_data->n_allocated_vis;
-	vi_res->timer_quantum_ns = efx->timer_quantum_ns;
 	vi_res->rss_channel_count = efx->rss_spread;
-	vi_res->rx_channel_count = efx_rx_channels(efx);
 	vi_res->vi_stride = efx->vi_stride;
-	vi_res->mem_bar = efx->type->mem_bar(efx);
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	ef10_res->vi_min = vi_res->vi_min;
 	ef10_res->vi_lim = vi_res->vi_lim;
-	ef10_res->timer_quantum_ns = vi_res->timer_quantum_ns;
-	ef10_res->rss_channel_count = vi_res->rss_channel_count;
-	ef10_res->rx_channel_count = vi_res->rx_channel_count;
+	ef10_res->timer_quantum_ns = efx->timer_quantum_ns;
+	ef10_res->rss_channel_count = efx->rss_spread;
+	ef10_res->rx_channel_count = efx_rx_channels(efx);
 	ef10_res->flags |= EFX_DL_EF10_USE_MSI;
 	ef10_res->vi_stride = vi_res->vi_stride;
-	ef10_res->mem_bar = vi_res->mem_bar;
+	ef10_res->mem_bar = efx->type->mem_bar(efx);
 
 	efx->dl_nic.dl_info = &ef10_res->hdr;
 #endif
@@ -5966,12 +5963,6 @@ const struct efx_nic_type efx_hunt_a0_vf_nic_type = {
 	.supported_interrupt_modes = BIT(EFX_INT_MODE_MSIX),
 	.timer_period_max = 1 << ERF_DD_EVQ_IND_TIMER_VAL_WIDTH,
 #ifdef EFX_NOT_UPSTREAM
-	.vi_resources = {
-		.vi_base = 0,
-		.vi_shift = 0,
-		.vi_min = 0,
-		.vi_lim = 0
-	},
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	.ef10_resources = {
 		.hdr.next = ((struct efx_dl_device_info *)
@@ -6170,12 +6161,6 @@ const struct efx_nic_type efx_hunt_a0_nic_type = {
 				     BIT(EFX_INT_MODE_MSI),
 	.timer_period_max = 1 << ERF_DD_EVQ_IND_TIMER_VAL_WIDTH,
 #ifdef EFX_NOT_UPSTREAM
-	.vi_resources = {
-		.vi_base = 0,
-		.vi_shift = 0,
-		.vi_min = 0,
-		.vi_lim = 0
-	},
 #if IS_MODULE(CONFIG_SFC_DRIVERLINK)
 	.ef10_resources = {
 		.hdr.next = ((struct efx_dl_device_info *)
